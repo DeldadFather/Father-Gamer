@@ -6,12 +6,14 @@
 <title>Stellar Siege</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;user-select:none;-webkit-touch-callout:none}
-body{background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:monospace;overflow:hidden}
+body{background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:monospace;overflow:hidden;transition:transform 0.3s ease}
+body.flipped {transform: rotate(180deg);}
 canvas{display:block;border:1px solid #1a1a2e;border-radius:4px;max-width:100%;height:auto;aspect-ratio:560/520}
 #ui{display:flex;gap:16px;padding:8px 0;width:100%;max-width:560px;align-items:center;justify-content:space-between}
 .stat{font-size:12px;color:#8888aa;letter-spacing:1px}
 .stat span{color:#e0e0ff;font-size:14px;font-weight:bold;transition:color 0.15s}
 #hint{font-size:11px;color:#555;text-align:center;padding-top:4px}
+#flipBtn{color:#00e5ff;cursor:pointer;text-decoration:underline;font-weight:bold;padding:2px 6px;margin-left:4px}
 </style>
 </head>
 <body>
@@ -22,7 +24,7 @@ canvas{display:block;border:1px solid #1a1a2e;border-radius:4px;max-width:100%;h
   <div class="stat">SHIELD <span id="shieldEl">████████</span></div>
 </div>
 <canvas id="c" width="560" height="520"></canvas>
-<div id="hint">WASD / Arrows to move · Mouse or Touch to aim & fire · Click/Tap to start</div>
+<div id="hint">WASD / Arrows to move · Mouse or Touch to aim & fire · <span id="flipBtn">🔄 Flip 180°</span></div>
 
 <script>
 const c=document.getElementById('c'),ctx=c.getContext('2d');
@@ -152,29 +154,54 @@ for(let i=0;i<22;i++){
     rotSpd:(Math.random()-0.5)*0.012,spd:0.18+Math.random()*0.28,alpha:0.18+Math.random()*0.25});
 }
 
-// Helper to convert screen touches safely to scaled internal resolution coordinates
-function getCanvasTouchCoords(touch) {
+// Unified scaling and inversion matrix handler for screen interactions
+function getCanvasCoords(e) {
   const r = c.getBoundingClientRect();
-  return {
-    x: (touch.clientX - r.left) * (W / r.width),
-    y: (touch.clientY - r.top) * (H / r.height)
-  };
+  let x = (e.clientX - r.left) * (W / r.width);
+  let y = (e.clientY - r.top) * (H / r.height);
+  
+  if (document.body.classList.contains('flipped')) {
+    x = W - x;
+    y = H - y;
+  }
+  return { x, y };
 }
+
+// Orientation Auto-Detection Handlers
+function checkOrientation() {
+  if (window.orientation === 180 || window.orientation === -180) {
+    document.body.classList.add('flipped');
+  } else if (screen.orientation && screen.orientation.angle === 180) {
+    document.body.classList.add('flipped');
+  }
+}
+window.addEventListener('orientationchange', checkOrientation);
+if (screen.orientation) screen.orientation.addEventListener('change', checkOrientation);
+checkOrientation();
+
+// Manual Override Trigger Interface Injection
+const toggleFlip = (e) => {
+  e.stopPropagation();
+  e.preventDefault();
+  document.body.classList.toggle('flipped');
+};
+document.getElementById('flipBtn').addEventListener('click', toggleFlip);
+document.getElementById('flipBtn').addEventListener('touchstart', toggleFlip, {passive: false});
 
 // Input listeners
 window.addEventListener('keydown',e=>{keys[e.key]=true;e.preventDefault&&['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)&&e.preventDefault()});
 window.addEventListener('keyup',e=>{keys[e.key]=false});
 
 c.addEventListener('mousemove',e=>{
-  const r=c.getBoundingClientRect();
-  player.mx=(e.clientX-r.left)*(W/r.width);
-  player.my=(e.clientY-r.top)*(H/r.height);
+  const pos = getCanvasCoords(e);
+  player.mx = pos.x;
+  player.my = pos.y;
 });
 let mouseDown=false;
 c.addEventListener('mousedown',e=>{
-  const r=c.getBoundingClientRect();
-  player.mx=(e.clientX-r.left)*(W/r.width);
-  player.my=(e.clientY-r.top)*(H/r.height);
+  const pos = getCanvasCoords(e);
+  player.mx = pos.x;
+  player.my = pos.y;
   mouseDown=true;
   if(state!=='playing'){startGame()}
 });
@@ -185,15 +212,17 @@ c.addEventListener('touchstart',e=>{
   e.preventDefault();
   for(let i=0; i<e.changedTouches.length; i++){
     const touch = e.changedTouches[i];
-    const pos = getCanvasTouchCoords(touch);
+    const pos = getCanvasCoords(touch);
     
     if(state!=='playing'){
       startGame();
       return;
     }
     
-    // Left half sets up movement stick, right half aims & shoots
-    if(pos.x < W/2 && moveTouchId === null){
+    // Check zone relative to visual alignment
+    const isLeftHalf = document.body.classList.contains('flipped') ? (pos.x > W/2) : (pos.x < W/2);
+    
+    if(isLeftHalf && moveTouchId === null){
       moveTouchId = touch.identifier;
       joystickStart = {x: pos.x, y: pos.y};
       joystickCurrent = {x: pos.x, y: pos.y};
@@ -210,7 +239,7 @@ c.addEventListener('touchmove',e=>{
   e.preventDefault();
   for(let i=0; i<e.touches.length; i++){
     const touch = e.touches[i];
-    const pos = getCanvasTouchCoords(touch);
+    const pos = getCanvasCoords(touch);
     
     if(touch.identifier === moveTouchId){
       joystickCurrent = {x: pos.x, y: pos.y};
